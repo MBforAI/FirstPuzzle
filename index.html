@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Jigsaw Puzzle</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f0e17;
+  color: #fffffe;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* ── Setup ── */
+#setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  height: 100dvh;
+  gap: 20px;
+  padding: 24px;
+}
+
+#setup h1 {
+  font-size: clamp(1.8rem, 6vw, 3rem);
+  font-weight: 800;
+  background: linear-gradient(135deg, #a786df 0%, #ff8ba7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.upload-zone {
+  border: 2px dashed rgba(255,255,255,0.25);
+  border-radius: 14px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  overflow: hidden;
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: #a786df;
+  background: rgba(167,134,223,0.08);
+}
+.upload-zone img { max-width: 100%; max-height: 160px; object-fit: contain; border-radius: 8px; }
+.upload-zone .icon { font-size: 2.4rem; }
+.upload-zone .hint { font-size: 0.875rem; color: rgba(255,255,255,0.5); }
+#file-input { display: none; }
+
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.45);
+  margin-bottom: 8px;
+}
+
+.grid-opts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.grid-opt {
+  background: rgba(255,255,255,0.08);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 10px 4px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.15s;
+  user-select: none;
+}
+.grid-opt small {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 400;
+  color: rgba(255,255,255,0.4);
+  margin-top: 2px;
+}
+.grid-opt:hover { background: rgba(255,255,255,0.14); }
+.grid-opt.active {
+  border-color: #a786df;
+  background: rgba(167,134,223,0.18);
+  color: #c9b6f5;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #a786df 0%, #ff8ba7 100%);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  padding: 15px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+/* ── Puzzle ── */
+#puzzle {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  height: 50px;
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.45);
+  gap: 8px;
+}
+#toolbar .spacer { flex: 1; }
+#progress { font-size: 0.82rem; color: rgba(255,255,255,0.65); white-space: nowrap; }
+
+.btn-sm {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: white;
+  border-radius: 8px;
+  padding: 6px 13px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-sm:hover { background: rgba(255,255,255,0.18); }
+
+#canvas-wrap { flex: 1; overflow: hidden; position: relative; }
+#canvas { display: block; cursor: grab; }
+#canvas.dragging { cursor: grabbing; }
+
+/* ── Win overlay ── */
+#win {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15,14,23,0.88);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 100;
+}
+#win.show { display: flex; animation: fadeIn 0.5s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+#win-emoji { font-size: 3.5rem; animation: bob 0.7s ease infinite alternate; }
+@keyframes bob { to { transform: translateY(-14px); } }
+#win h2 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #ffd700, #ff8c00);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+#win-stats { font-size: 0.95rem; color: rgba(255,255,255,0.55); }
+.win-btns { display: flex; gap: 12px; margin-top: 6px; }
+.win-btns button {
+  padding: 13px 26px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+#btn-again { background: linear-gradient(135deg, #a786df, #ff8ba7); color: white; }
+#btn-new   { background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.18) !important; }
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<div id="setup">
+  <h1>🧩 Jigsaw</h1>
+  <div class="card">
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" id="file-input" accept="image/*">
+      <span class="icon" id="up-icon">📷</span>
+      <span class="hint" id="up-hint">Tap to choose a photo</span>
+      <img id="preview" style="display:none" alt="">
+    </div>
+
+    <div>
+      <div class="field-label">Number of pieces</div>
+      <div class="grid-opts" id="grid-opts">
+        <div class="grid-opt" data-c="2" data-r="2">4<small>easy</small></div>
+        <div class="grid-opt active" data-c="3" data-r="3">9<small>easy</small></div>
+        <div class="grid-opt" data-c="4" data-r="4">16<small></small></div>
+        <div class="grid-opt" data-c="5" data-r="5">25<small></small></div>
+        <div class="grid-opt" data-c="6" data-r="6">36<small></small></div>
+        <div class="grid-opt" data-c="8" data-r="8">64<small>hard</small></div>
+        <div class="grid-opt" data-c="10" data-r="10">100<small>hard</small></div>
+        <div class="grid-opt" data-c="12" data-r="12">144<small>expert</small></div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="start-btn" disabled>Start Puzzle</button>
+  </div>
+</div>
+
+<!-- PUZZLE -->
+<div id="puzzle">
+  <div id="toolbar">
+    <button class="btn-sm" id="back-btn">← Menu</button>
+    <div class="spacer"></div>
+    <span id="progress">0 / 0 placed</span>
+    <div class="spacer"></div>
+    <button class="btn-sm" id="hint-btn">Hint</button>
+    <button class="btn-sm" id="shuffle-btn">Shuffle</button>
+    <button class="btn-sm" id="mute-btn" title="Mute / unmute">🔊</button>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+</div>
+
+<!-- WIN -->
+<div id="win">
+  <div id="win-emoji">🎉</div>
+  <h2>Puzzle Complete!</h2>
+  <p id="win-stats">You did it!</p>
+  <div class="win-btns">
+    <button id="btn-again">Play Again</button>
+    <button id="btn-new">New Image</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ══ SETUP SCREEN ══════════════════════════════════════════════
+
+let loadedImage = null;
+let selCols = 3, selRows = 3;
+
+const uploadZone = document.getElementById('upload-zone');
+const fileInput  = document.getElementById('file-input');
+const preview    = document.getElementById('preview');
+const upIcon     = document.getElementById('up-icon');
+const upHint     = document.getElementById('up-hint');
+const startBtn   = document.getElementById('start-btn');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const tmp = new Image();
+    tmp.onload = () => {
+      // Scale down large images for performance
+      const MAX = 1400;
+      if (tmp.width > MAX || tmp.height > MAX) {
+        const scale = Math.min(MAX / tmp.width, MAX / tmp.height);
+        const oc = Object.assign(document.createElement('canvas'), {
+          width:  Math.round(tmp.width  * scale),
+          height: Math.round(tmp.height * scale),
+        });
+        oc.getContext('2d').drawImage(tmp, 0, 0, oc.width, oc.height);
+        const scaled = new Image();
+        scaled.onload = () => { loadedImage = scaled; showPreview(oc.toDataURL()); };
+        scaled.src = oc.toDataURL();
+      } else {
+        loadedImage = tmp;
+        showPreview(ev.target.result);
+      }
+    };
+    tmp.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function showPreview(src) {
+  preview.src = src;
+  preview.style.display = 'block';
+  upIcon.style.display = 'none';
+  upHint.style.display = 'none';
+  startBtn.disabled = false;
+}
+
+document.getElementById('grid-opts').addEventListener('click', e => {
+  const opt = e.target.closest('.grid-opt');
+  if (!opt) return;
+  document.querySelectorAll('.grid-opt').forEach(o => o.classList.remove('active'));
+  opt.classList.add('active');
+  selCols = +opt.dataset.c;
+  selRows = +opt.dataset.r;
+});
+
+startBtn.addEventListener('click', () => {
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('puzzle').style.display = 'flex';
+  initPuzzle(loadedImage, selCols, selRows);
+  Snd.start();
+});
+
+document.getElementById('back-btn').addEventListener('click', () => {
+  cancelAnimationFrame(rafId);
+  Snd.stop();
+  document.getElementById('puzzle').style.display = 'none';
+  document.getElementById('win').classList.remove('show');
+  document.getElementById('setup').style.display = 'flex';
+});
+
+document.getElementById('btn-again').addEventListener('click', () => {
+  document.getElementById('win').classList.remove('show');
+  initPuzzle(loadedImage, selCols, selRows);
+  Snd.start();
+});
+
+document.getElementById('btn-new').addEventListener('click', () => {
+  cancelAnimationFrame(rafId);
+  Snd.stop();
+  document.getElementById('win').classList.remove('show');
+  document.getElementById('puzzle').style.display = 'none';
+  document.getElementById('setup').style.display = 'flex';
+});
+
+// ══ AUDIO ══════════════════════════════════════════════════════
+//
+// All sound is synthesised with the Web Audio API — no files needed.
+// Music: gentle C-major-pentatonic melody + counter-melody + bass,
+//        scheduled with a lookahead timer for accurate timing.
+// Snap:  short pitch-drop click on each piece placed.
+// Win:   ascending run → bright major chord fanfare.
+
+const Snd = (() => {
+  let ac = null, master = null, verb = null;
+  let muted = false, running = false;
+  let step = 0, nextBeat = 0, schedTimer = null;
+
+  const BPM  = 72;
+  const STEP = (60 / BPM) / 2;   // eighth-note duration in seconds
+  const AHEAD = 0.15;             // scheduling lookahead window
+  const TICK  = 50;               // scheduler poll interval (ms)
+
+  // C major pentatonic: C4 D4 E4 G4 A4 C5 D5 E5
+  const HZ  = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
+
+  // 16-step patterns — index into HZ, -1 = rest
+  const MEL = [ 4, -1,  5,  2,  4,  5,  6, -1,  5,  2,  4, -1,  3,  4, -1, -1];
+  const MID = [-1,  1, -1,  3, -1,  2, -1,  3, -1,  1, -1,  2, -1, -1,  1, -1];
+  const BAS = [ 0, -1, -1, -1,  3, -1, -1, -1,  0, -1, -1, -1,  3, -1, -1, -1];
+
+  function init() {
+    if (ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+
+    master = ac.createGain();
+    master.gain.value = 0.5;
+    master.connect(ac.destination);
+
+    // Synthetic reverb — exponentially decaying noise impulse response
+    verb = ac.createConvolver();
+    const len = Math.floor(ac.sampleRate * 1.8);
+    const ir  = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++)
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+    }
+    verb.buffer = ir;
+    const vg = ac.createGain();
+    vg.gain.value = 0.18;
+    verb.connect(vg);
+    vg.connect(master);
+  }
+
+  // Piano-like note: triangle + sine, low-pass filtered, ADSR envelope
+  function note(freq, vol, dur, when, wet) {
+    const t   = when;
+    const o1  = ac.createOscillator();
+    const o2  = ac.createOscillator();
+    o1.type   = 'triangle';
+    o2.type   = 'sine';
+    o1.frequency.value = freq;
+    o2.frequency.value = freq * 1.003;  // subtle detuning for warmth
+
+    const lpf = ac.createBiquadFilter();
+    lpf.type  = 'lowpass';
+    lpf.frequency.value = 2200;
+
+    const env = ac.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(vol,        t + 0.012);
+    env.gain.setValueAtTime(vol * 0.65,          t + 0.06);
+    env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    const g1 = ac.createGain(); g1.gain.value = 0.7;
+    const g2 = ac.createGain(); g2.gain.value = 0.3;
+    o1.connect(g1); o2.connect(g2);
+    g1.connect(lpf); g2.connect(lpf);
+    lpf.connect(env);
+    env.connect(master);
+    if (wet > 0) {
+      const wg = ac.createGain(); wg.gain.value = wet;
+      env.connect(wg); wg.connect(verb);
+    }
+    o1.start(t); o2.start(t);
+    o1.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+  }
+
+  function schedStep(s, when) {
+    const i = s % 16;
+    if (MEL[i] >= 0) note(HZ[MEL[i]],        0.16, STEP * 2.5, when, 0.25);
+    if (MID[i] >= 0) note(HZ[MID[i]],        0.10, STEP * 3.0, when, 0.30);
+    if (BAS[i] >= 0) note(HZ[BAS[i]] * 0.5,  0.13, STEP * 4.0, when, 0.10);
+  }
+
+  function scheduler() {
+    if (!running) return;
+    while (nextBeat < ac.currentTime + AHEAD) {
+      schedStep(step, nextBeat);
+      nextBeat += STEP;
+      step++;
+    }
+    schedTimer = setTimeout(scheduler, TICK);
+  }
+
+  return {
+    start() {
+      init();
+      if (ac.state === 'suspended') ac.resume();
+      if (muted) return;
+      running  = true;
+      step     = 0;
+      nextBeat = ac.currentTime + 0.2;
+      clearTimeout(schedTimer);
+      scheduler();
+    },
+
+    stop() {
+      running = false;
+      clearTimeout(schedTimer);
+    },
+
+    setMuted(on) {
+      muted = on;
+      if (!master) return;
+      master.gain.setTargetAtTime(on ? 0 : 0.5, ac.currentTime, 0.12);
+      if (!on && !running) this.start();
+    },
+
+    snap() {
+      if (!ac || muted) return;
+      const t   = ac.currentTime;
+      const osc = ac.createOscillator();
+      const env = ac.createGain();
+      osc.type  = 'sine';
+      osc.frequency.setValueAtTime(680, t);
+      osc.frequency.exponentialRampToValueAtTime(210, t + 0.09);
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.45, t + 0.004);
+      env.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      osc.connect(env); env.connect(master);
+      osc.start(t); osc.stop(t + 0.16);
+    },
+
+    winFanfare() {
+      if (!ac) return;
+      running = false;
+      clearTimeout(schedTimer);
+      if (muted) return;
+
+      const t = ac.currentTime + 0.05;
+      // Ascending run: C5 E5 G5 A5 C6
+      [523.25, 659.25, 783.99, 880.00, 1046.50].forEach((f, i) =>
+        note(f, 0.38, 1.6, t + i * 0.13, 0.45)
+      );
+      // Final chord
+      const ct = t + 5 * 0.13 + 0.08;
+      [523.25, 659.25, 783.99, 1046.50].forEach(f =>
+        note(f, 0.32, 3.2, ct, 0.55)
+      );
+    },
+  };
+})();
+
+let isMuted = false;
+document.getElementById('mute-btn').addEventListener('click', () => {
+  isMuted = !isMuted;
+  Snd.setMuted(isMuted);
+  document.getElementById('mute-btn').textContent = isMuted ? '🔇' : '🔊';
+});
+
+// ══ PUZZLE ENGINE ══════════════════════════════════════════════
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let rafId = 0;
+let G = {};  // global game state
+
+function initPuzzle(img, cols, rows) {
+  cancelAnimationFrame(rafId);
+
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+
+  // Board geometry — fit image inside canvas with padding
+  const PAD = 40;
+  const availW = canvas.width  - PAD * 2;
+  const availH = canvas.height - PAD * 2;
+  const aspect = img.width / img.height;
+
+  let bw = availW, bh = bw / aspect;
+  if (bh > availH) { bh = availH; bw = bh * aspect; }
+
+  const bx = (canvas.width  - bw) / 2;
+  const by = (canvas.height - bh) / 2;
+  const cw = bw / cols;
+  const ch = bh / rows;
+  const ts = Math.min(cw, ch) * 0.22;  // tab protrusion size
+
+  // Generate edge tab directions (+1 tab out, -1 blank in, 0 flat border)
+  const tabGrid = [];
+  for (let r = 0; r < rows; r++) {
+    tabGrid[r] = [];
+    for (let c = 0; c < cols; c++) {
+      tabGrid[r][c] = {
+        right:  c < cols - 1 ? (Math.random() < 0.5 ? 1 : -1) : 0,
+        bottom: r < rows - 1 ? (Math.random() < 0.5 ? 1 : -1) : 0,
+      };
+    }
+  }
+
+  const pieces = [];
+  let zTop = 0;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      // Derive this piece's 4 edge tabs (adjacent edges must be complementary)
+      const tabs = {
+        top:    r === 0        ? 0 : -tabGrid[r-1][c].bottom,
+        right:  c === cols - 1 ? 0 :  tabGrid[r][c].right,
+        bottom: r === rows - 1 ? 0 :  tabGrid[r][c].bottom,
+        left:   c === 0        ? 0 : -tabGrid[r][c-1].right,
+      };
+
+      // Correct bounding-box position when solved (top-left includes tab overflow)
+      const correctX = bx + c * cw - ts;
+      const correctY = by + r * ch - ts;
+
+      // Random starting position, fully on canvas
+      const pw = cw + 2 * ts, ph = ch + 2 * ts;
+      const sx = Math.random() * (canvas.width  - pw);
+      const sy = Math.random() * (canvas.height - ph);
+
+      pieces.push({
+        col: c, row: r,
+        x: sx, y: sy,
+        correctX, correctY,
+        tabs,
+        path: buildPath(tabs, cw, ch, ts),
+        placed: false,
+        z: zTop++,
+      });
+    }
+  }
+
+  // Randomise initial z-order
+  pieces.forEach(p => { p.z = Math.random(); });
+
+  G = {
+    img, cols, rows, bx, by, bw, bh, cw, ch, ts,
+    pieces,
+    drag: null, dragOX: 0, dragOY: 0,
+    zTop: pieces.length,
+    placed: 0,
+    total: cols * rows,
+    showHint: false,
+    hintTimer: null,
+    startTime: Date.now(),
+    confetti: [],
+  };
+
+  updateProgress();
+  rafId = requestAnimationFrame(loop);
+}
+
+// ── Build jigsaw piece Path2D ──────────────────────────────────
+//
+// Each piece is drawn in local coords. The bounding box is
+// (cw + 2*ts) × (ch + 2*ts). The rectangular cell occupies
+// the inner region (ts, ts) → (ts+cw, ts+ch). Tabs extend
+// beyond that into the tab margin.
+
+function buildPath(tabs, cw, ch, ts) {
+  const p = new Path2D();
+  const x0 = ts, y0 = ts;
+  p.moveTo(x0, y0);
+  //               from        to              tab          outward dir   ts
+  addEdge(p, x0,    y0,    x0+cw, y0,    tabs.top,     0, -1, ts);  // top    → up
+  addEdge(p, x0+cw, y0,    x0+cw, y0+ch, tabs.right,   1,  0, ts);  // right  → right
+  addEdge(p, x0+cw, y0+ch, x0,    y0+ch, tabs.bottom,  0,  1, ts);  // bottom → down
+  addEdge(p, x0,    y0+ch, x0,    y0,    tabs.left,    -1,  0, ts);  // left   → left
+  p.closePath();
+  return p;
+}
+
+function addEdge(path, x1, y1, x2, y2, tab, ox, oy, ts) {
+  if (tab === 0) { path.lineTo(x2, y2); return; }
+
+  const dx = x2 - x1, dy = y2 - y1;
+  const t  = tab; // +1 or -1
+
+  // Three landmark points at 30%, 50%, 70% along the edge
+  const p1x = x1 + dx * 0.3,  p1y = y1 + dy * 0.3;
+  const p2x = x1 + dx * 0.5,  p2y = y1 + dy * 0.5;  // tab peak
+  const p3x = x1 + dx * 0.7,  p3y = y1 + dy * 0.7;
+
+  path.lineTo(p1x, p1y);
+  // Rise to peak
+  path.bezierCurveTo(
+    p1x + ox*t*ts*0.5,          p1y + oy*t*ts*0.5,
+    p2x + ox*t*ts - dx*0.12,    p2y + oy*t*ts - dy*0.12,
+    p2x + ox*t*ts,              p2y + oy*t*ts
+  );
+  // Fall from peak
+  path.bezierCurveTo(
+    p2x + ox*t*ts + dx*0.12,    p2y + oy*t*ts + dy*0.12,
+    p3x + ox*t*ts*0.5,          p3y + oy*t*ts*0.5,
+    p3x,                        p3y
+  );
+  path.lineTo(x2, y2);
+}
+
+// ── Render loop ────────────────────────────────────────────────
+
+function loop() {
+  draw();
+  rafId = requestAnimationFrame(loop);
+}
+
+function draw() {
+  const { img, bx, by, bw, bh, pieces, showHint, confetti } = G;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background
+  ctx.fillStyle = '#0f0e17';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Board area tint
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  ctx.fillRect(bx - 4, by - 4, bw + 8, bh + 8);
+
+  // Ghost outlines where unplaced pieces belong
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+  ctx.lineWidth   = 1;
+  for (const p of pieces) {
+    if (p.placed) continue;
+    ctx.save();
+    ctx.translate(p.correctX, p.correctY);
+    ctx.stroke(p.path);
+    ctx.restore();
+  }
+
+  // Pieces in z-order (lowest first)
+  const sorted = pieces.slice().sort((a, b) => a.z - b.z);
+  for (const p of sorted) drawPiece(p);
+
+  // Hint: semi-transparent completed image overlay
+  if (showHint) {
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    ctx.drawImage(img, bx, by, bw, bh);
+    ctx.restore();
+  }
+
+  // Confetti particles
+  tickConfetti();
+}
+
+function drawPiece(p) {
+  const { img, bw, bh, cw, ch, ts, drag } = G;
+  const active = p === drag;
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+
+  // Shadow for loose pieces
+  if (!p.placed) {
+    ctx.shadowColor    = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur     = active ? 22 : 9;
+    ctx.shadowOffsetX  = active ? 7 : 3;
+    ctx.shadowOffsetY  = active ? 7 : 3;
+  }
+
+  // Clip to piece shape, draw image
+  ctx.save();
+  ctx.clip(p.path);
+  ctx.shadowColor = 'transparent';
+  // Offset so only this piece's slice of the image shows
+  ctx.drawImage(img, -p.col * cw + ts, -p.row * ch + ts, bw, bh);
+  ctx.restore();
+
+  // Piece border
+  ctx.shadowColor  = 'transparent';
+  ctx.strokeStyle  = p.placed ? 'rgba(255,255,255,0.07)'
+                   : active   ? 'rgba(255,255,255,0.55)'
+                              : 'rgba(0,0,0,0.7)';
+  ctx.lineWidth    = p.placed ? 0.7 : active ? 2.2 : 1.2;
+  ctx.stroke(p.path);
+
+  ctx.restore();
+}
+
+// ── Input ──────────────────────────────────────────────────────
+
+function evXY(e) {
+  const r   = canvas.getBoundingClientRect();
+  const src = e.touches ? (e.touches[0] || e.changedTouches[0]) : e;
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+
+function topPieceAt(mx, my) {
+  // Highest-z unplaced piece whose shape contains the point
+  const sorted = G.pieces.slice().sort((a, b) => b.z - a.z);
+  for (const p of sorted) {
+    if (p.placed) continue;
+    if (ctx.isPointInPath(p.path, mx - p.x, my - p.y)) return p;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousedown',  down);
+canvas.addEventListener('mousemove',  move);
+canvas.addEventListener('mouseup',    up);
+canvas.addEventListener('mouseleave', up);
+canvas.addEventListener('touchstart', down, { passive: false });
+canvas.addEventListener('touchmove',  move, { passive: false });
+canvas.addEventListener('touchend',   up,   { passive: false });
+
+function down(e) {
+  e.preventDefault();
+  const { x, y } = evXY(e);
+  const p = topPieceAt(x, y);
+  if (!p) return;
+  G.drag   = p;
+  G.dragOX = x - p.x;
+  G.dragOY = y - p.y;
+  p.z      = G.zTop++;
+  canvas.classList.add('dragging');
+}
+
+function move(e) {
+  e.preventDefault();
+  if (!G.drag) return;
+  const { x, y } = evXY(e);
+  G.drag.x = x - G.dragOX;
+  G.drag.y = y - G.dragOY;
+}
+
+function up(e) {
+  e.preventDefault();
+  if (!G.drag) return;
+  const p = G.drag;
+  G.drag = null;
+  canvas.classList.remove('dragging');
+  trySnap(p);
+}
+
+function trySnap(p) {
+  const threshold = Math.min(G.cw, G.ch) * 0.4;
+  if (Math.abs(p.x - p.correctX) < threshold &&
+      Math.abs(p.y - p.correctY) < threshold) {
+    p.x = p.correctX;
+    p.y = p.correctY;
+    if (!p.placed) {
+      p.placed = true;
+      G.placed++;
+      Snd.snap();
+      updateProgress();
+      if (G.placed === G.total) onWin();
+    }
+  }
+}
+
+// ── UI helpers ─────────────────────────────────────────────────
+
+function updateProgress() {
+  document.getElementById('progress').textContent =
+    `${G.placed} / ${G.total} placed`;
+}
+
+document.getElementById('hint-btn').addEventListener('click', () => {
+  G.showHint = true;
+  clearTimeout(G.hintTimer);
+  G.hintTimer = setTimeout(() => { G.showHint = false; }, 2500);
+});
+
+document.getElementById('shuffle-btn').addEventListener('click', () => {
+  const { cw, ch, ts } = G;
+  const pw = cw + 2 * ts, ph = ch + 2 * ts;
+  for (const p of G.pieces) {
+    if (!p.placed) {
+      p.x = Math.random() * (canvas.width  - pw);
+      p.y = Math.random() * (canvas.height - ph);
+      p.z = G.zTop++;
+    }
+  }
+});
+
+// ── Win ────────────────────────────────────────────────────────
+
+function onWin() {
+  const elapsed = Math.round((Date.now() - G.startTime) / 1000);
+  const m = Math.floor(elapsed / 60), s = elapsed % 60;
+  document.getElementById('win-stats').textContent =
+    `Solved in ${m > 0 ? m + 'm ' : ''}${s}s — well done!`;
+  Snd.winFanfare();
+  spawnConfetti();
+  setTimeout(() => document.getElementById('win').classList.add('show'), 900);
+}
+
+// ── Confetti ───────────────────────────────────────────────────
+
+function spawnConfetti() {
+  const colors = ['#a786df','#ff8ba7','#ffd700','#6af','#f96','#6f6','#fa0'];
+  G.confetti = Array.from({ length: 130 }, () => ({
+    x:  Math.random() * canvas.width,
+    y:  -20 - Math.random() * 100,
+    vx: (Math.random() - 0.5) * 3.5,
+    vy: 1.5 + Math.random() * 3.5,
+    rot: Math.random() * Math.PI * 2,
+    rv:  (Math.random() - 0.5) * 0.14,
+    w:   6 + Math.random() * 8,
+    h:   4 + Math.random() * 5,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    alpha: 1,
+    done: false,
+  }));
+}
+
+function tickConfetti() {
+  if (!G.confetti || !G.confetti.length) return;
+  let any = false;
+  for (const c of G.confetti) {
+    if (c.done) continue;
+    c.x   += c.vx;
+    c.y   += c.vy;
+    c.vy   = Math.min(c.vy + 0.06, 9);
+    c.rot += c.rv;
+    if (c.y > canvas.height + 20) { c.done = true; continue; }
+    any = true;
+    ctx.save();
+    ctx.globalAlpha = c.alpha;
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+    ctx.restore();
+  }
+  if (!any) G.confetti = [];
+}
+</script>
+</body>
+</html>
