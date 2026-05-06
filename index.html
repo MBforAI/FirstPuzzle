@@ -179,8 +179,13 @@ body {
 }
 #win.show { display: flex; animation: fadeIn 0.5s ease; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-#win-emoji { font-size: 3.5rem; animation: bob 0.7s ease infinite alternate; }
-@keyframes bob { to { transform: translateY(-14px); } }
+#win-snapshot {
+  max-width: 88%;
+  max-height: 44vh;
+  border-radius: 14px;
+  object-fit: contain;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.65);
+}
 #win h2 {
   font-size: 2.2rem;
   font-weight: 800;
@@ -252,8 +257,8 @@ body {
 
 <!-- WIN -->
 <div id="win">
-  <div id="win-emoji">🎉</div>
-  <h2>Puzzle Complete!</h2>
+  <img id="win-snapshot" alt="Completed puzzle">
+  <h2>🎉 Puzzle Complete!</h2>
   <p id="win-stats">You did it!</p>
   <div class="win-btns">
     <button id="btn-again">Play Again</button>
@@ -363,100 +368,97 @@ document.getElementById('btn-new').addEventListener('click', () => {
 // ══ AUDIO ══════════════════════════════════════════════════════
 //
 // All sound is synthesised with the Web Audio API — no files needed.
-// Music: gentle C-major-pentatonic melody + counter-melody + bass,
-//        scheduled with a lookahead timer for accurate timing.
+// Music: Ode to Joy (Beethoven) on a cello-style synthesiser.
 // Snap:  short pitch-drop click on each piece placed.
-// Win:   ascending run → bright major chord fanfare.
+// Win:   triumphant Ode to Joy fanfare.
 
 const Snd = (() => {
   let ac = null, master = null, verb = null;
   let muted = false, running = false;
-  let step = 0, nextBeat = 0, schedTimer = null;
+  let noteIdx = 0, nextTime = 0, schedTimer = null;
 
-  const BPM  = 72;
-  const STEP = (60 / BPM) / 2;   // eighth-note duration in seconds
-  const AHEAD = 0.15;             // scheduling lookahead window
-  const TICK  = 50;               // scheduler poll interval (ms)
+  const BPM  = 108;
+  const BEAT = 60 / BPM;   // quarter-note duration in seconds
+  const AHEAD = 0.20;
+  const TICK  = 50;
 
-  // C major pentatonic: C4 D4 E4 G4 A4 C5 D5 E5
-  const HZ  = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
+  // Note frequencies
+  const G3=196.00, C4=261.63, D4=293.66, E4=329.63, F4=349.23, G4=392.00;
 
-  // 16-step patterns — index into HZ, -1 = rest
-  const MEL = [ 4, -1,  5,  2,  4,  5,  6, -1,  5,  2,  4, -1,  3,  4, -1, -1];
-  const MID = [-1,  1, -1,  3, -1,  2, -1,  3, -1,  1, -1,  2, -1, -1,  1, -1];
-  const BAS = [ 0, -1, -1, -1,  3, -1, -1, -1,  0, -1, -1, -1,  3, -1, -1, -1];
+  // Ode to Joy melody: [frequency, beat_duration] — loops continuously
+  const ODE = [
+    [E4,1],[E4,1],[F4,1],[G4,1],           // A (bars 1–4)
+    [G4,1],[F4,1],[E4,1],[D4,1],
+    [C4,1],[C4,1],[D4,1],[E4,1],
+    [E4,1.5],[D4,0.5],[D4,2],
+    [E4,1],[E4,1],[F4,1],[G4,1],           // A repeat (bars 5–8)
+    [G4,1],[F4,1],[E4,1],[D4,1],
+    [C4,1],[C4,1],[D4,1],[E4,1],
+    [D4,1.5],[C4,0.5],[C4,2],
+    [D4,1],[D4,1],[E4,1],[C4,1],           // B (bars 9–12)
+    [D4,1],[E4,0.5],[F4,0.5],[E4,1],[C4,1],
+    [D4,1],[E4,0.5],[F4,0.5],[E4,1],[D4,1],
+    [C4,1],[D4,1],[G3,2],
+    [E4,1],[E4,1],[F4,1],[G4,1],           // A final (bars 13–16)
+    [G4,1],[F4,1],[E4,1],[D4,1],
+    [C4,1],[C4,1],[D4,1],[E4,1],
+    [D4,1.5],[C4,0.5],[C4,2],
+  ];
 
   function init() {
     if (ac) return;
     ac = new (window.AudioContext || window.webkitAudioContext)();
-
     master = ac.createGain();
     master.gain.value = 0.5;
     master.connect(ac.destination);
 
     // Synthetic reverb — exponentially decaying noise impulse response
     verb = ac.createConvolver();
-    const len = Math.floor(ac.sampleRate * 1.8);
+    const len = Math.floor(ac.sampleRate * 2.0);
     const ir  = ac.createBuffer(2, len, ac.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
       for (let i = 0; i < len; i++)
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.8);
     }
     verb.buffer = ir;
     const vg = ac.createGain();
-    vg.gain.value = 0.18;
+    vg.gain.value = 0.28;
     verb.connect(vg);
     vg.connect(master);
   }
 
-  // Piano-like note: triangle + sine, low-pass filtered, ADSR envelope
-  function note(freq, vol, dur, when, wet) {
-    const t   = when;
-    const o1  = ac.createOscillator();
-    const o2  = ac.createOscillator();
-    o1.type   = 'triangle';
-    o2.type   = 'sine';
-    o1.frequency.value = freq;
-    o2.frequency.value = freq * 1.003;  // subtle detuning for warmth
+  // Plain note: triangle wave, simple attack/decay envelope
+  function celloNote(freq, vol, dur, when, wet) {
+    const t = when;
 
-    const lpf = ac.createBiquadFilter();
-    lpf.type  = 'lowpass';
-    lpf.frequency.value = 2200;
+    const osc = ac.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
 
     const env = ac.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(vol,        t + 0.012);
-    env.gain.setValueAtTime(vol * 0.65,          t + 0.06);
+    env.gain.linearRampToValueAtTime(vol, t + 0.015);
+    env.gain.setValueAtTime(vol * 0.7, t + 0.06);
     env.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    const g1 = ac.createGain(); g1.gain.value = 0.7;
-    const g2 = ac.createGain(); g2.gain.value = 0.3;
-    o1.connect(g1); o2.connect(g2);
-    g1.connect(lpf); g2.connect(lpf);
-    lpf.connect(env);
-    env.connect(master);
+    osc.connect(env); env.connect(master);
     if (wet > 0) {
       const wg = ac.createGain(); wg.gain.value = wet;
       env.connect(wg); wg.connect(verb);
     }
-    o1.start(t); o2.start(t);
-    o1.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
-  }
-
-  function schedStep(s, when) {
-    const i = s % 16;
-    if (MEL[i] >= 0) note(HZ[MEL[i]],        0.16, STEP * 2.5, when, 0.25);
-    if (MID[i] >= 0) note(HZ[MID[i]],        0.10, STEP * 3.0, when, 0.30);
-    if (BAS[i] >= 0) note(HZ[BAS[i]] * 0.5,  0.13, STEP * 4.0, when, 0.10);
+    osc.start(t); osc.stop(t + dur + 0.05);
   }
 
   function scheduler() {
     if (!running) return;
-    while (nextBeat < ac.currentTime + AHEAD) {
-      schedStep(step, nextBeat);
-      nextBeat += STEP;
-      step++;
+    while (nextTime < ac.currentTime + AHEAD) {
+      const [freq, beats] = ODE[noteIdx % ODE.length];
+      const dur = beats * BEAT;
+      celloNote(freq, 0.22, dur * 0.90, nextTime, 0.30);
+      if (beats >= 1) celloNote(freq * 0.5, 0.11, Math.min(dur * 0.45, BEAT * 0.9), nextTime, 0.12);
+      nextTime += dur;
+      noteIdx++;
     }
     schedTimer = setTimeout(scheduler, TICK);
   }
@@ -467,8 +469,8 @@ const Snd = (() => {
       if (ac.state === 'suspended') ac.resume();
       if (muted) return;
       running  = true;
-      step     = 0;
-      nextBeat = ac.currentTime + 0.2;
+      noteIdx  = 0;
+      nextTime = ac.currentTime + 0.2;
       clearTimeout(schedTimer);
       scheduler();
     },
@@ -506,16 +508,30 @@ const Snd = (() => {
       clearTimeout(schedTimer);
       if (muted) return;
 
-      const t = ac.currentTime + 0.05;
-      // Ascending run: C5 E5 G5 A5 C6
-      [523.25, 659.25, 783.99, 880.00, 1046.50].forEach((f, i) =>
-        note(f, 0.38, 1.6, t + i * 0.13, 0.45)
-      );
-      // Final chord
-      const ct = t + 5 * 0.13 + 0.08;
-      [523.25, 659.25, 783.99, 1046.50].forEach(f =>
-        note(f, 0.32, 3.2, ct, 0.55)
-      );
+      const t = ac.currentTime + 0.1;
+      // 5-second rising fanfare — plays across the full confetti drop
+      const fanfareNotes = [[C4,0.5],[E4,0.5],[G4,0.6],[C4*2,0.8],[E4*2,2.6]];
+      let ft = t;
+      for (const [f, dur] of fanfareNotes) {
+        celloNote(f, 0.55, dur * 0.88, ft, 0.45);
+        ft += dur;
+      }
+      // Then the full A-section of Ode to Joy, louder and triumphant
+      ft += 0.1;
+      const phrase = [
+        [E4,1],[E4,1],[F4,1],[G4,1],
+        [G4,1],[F4,1],[E4,1],[D4,1],
+        [C4,1],[C4,1],[D4,1],[E4,1],
+        [D4,1.5],[C4,0.5],[C4,2],
+      ];
+      for (const [freq, beats] of phrase) {
+        const dur = beats * BEAT * 0.88;
+        celloNote(freq, 0.42, dur, ft, 0.50);
+        if (beats >= 1) celloNote(freq * 0.5, 0.18, dur * 0.6, ft, 0.15);
+        ft += beats * BEAT;
+      }
+      // Final held chord
+      [C4, E4, G4, C4 * 2].forEach(f => celloNote(f, 0.28, 5.0, ft, 0.65));
     },
   };
 })();
@@ -853,22 +869,26 @@ function onWin() {
   const m = Math.floor(elapsed / 60), s = elapsed % 60;
   document.getElementById('win-stats').textContent =
     `Solved in ${m > 0 ? m + 'm ' : ''}${s}s — well done!`;
+  // Capture the completed puzzle for the win screen
+  document.getElementById('win-snapshot').src = canvas.toDataURL('image/jpeg', 0.92);
   Snd.winFanfare();
   spawnConfetti();
-  setTimeout(() => document.getElementById('win').classList.add('show'), 900);
+  // Wait 5 s so user can enjoy confetti over the completed image
+  setTimeout(() => document.getElementById('win').classList.add('show'), 5000);
 }
 
 // ── Confetti ───────────────────────────────────────────────────
 
 function spawnConfetti() {
   const colors = ['#a786df','#ff8ba7','#ffd700','#6af','#f96','#6f6','#fa0'];
-  G.confetti = Array.from({ length: 130 }, () => ({
+  // More particles, staggered start heights, slower fall → lasts ~7 seconds
+  G.confetti = Array.from({ length: 220 }, () => ({
     x:  Math.random() * canvas.width,
-    y:  -20 - Math.random() * 100,
-    vx: (Math.random() - 0.5) * 3.5,
-    vy: 1.5 + Math.random() * 3.5,
+    y:  -20 - Math.random() * 400,
+    vx: (Math.random() - 0.5) * 3,
+    vy: 0.7 + Math.random() * 1.6,
     rot: Math.random() * Math.PI * 2,
-    rv:  (Math.random() - 0.5) * 0.14,
+    rv:  (Math.random() - 0.5) * 0.11,
     w:   6 + Math.random() * 8,
     h:   4 + Math.random() * 5,
     color: colors[Math.floor(Math.random() * colors.length)],
@@ -884,7 +904,7 @@ function tickConfetti() {
     if (c.done) continue;
     c.x   += c.vx;
     c.y   += c.vy;
-    c.vy   = Math.min(c.vy + 0.06, 9);
+    c.vy   = Math.min(c.vy + 0.03, 3.5);
     c.rot += c.rv;
     if (c.y > canvas.height + 20) { c.done = true; continue; }
     any = true;
